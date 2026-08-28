@@ -86,6 +86,8 @@
     ".type-opt p{margin:6px 0 0; font-size:12.5px; color:var(--ink-soft); line-height:1.5;}",
     ".type-opt.checked{border-color:var(--navy); background:var(--surface); box-shadow:0 0 0 3px rgba(31,59,87,0.10);}",
     ":root[data-theme='dark'] .type-opt.checked, .type-opt.checked{border-color:var(--gold);}",
+    ".type-opt.disabled{opacity:.55; cursor:not-allowed; background:var(--surface-alt);}",
+    ".type-opt.disabled input{cursor:not-allowed;}",
     ".subsection{margin-top:18px; padding-top:18px; border-top:1px dashed var(--border);}",
     ".hint{font-size:12.5px; color:var(--ink-faint); margin-top:6px;}",
     ".member-list{display:flex; flex-direction:column; gap:8px;}",
@@ -166,29 +168,54 @@
   var lastEntry = null;
   var formError = "";
 
-  // 도서 선택형 도서별 정원 관리
+  // 도서 선택형 도서별 정원 + 모둠 섭외형 전체 정원 관리
   var BOOK_CAPACITY_DEFAULT = 4;
+  var TEAM_CAPACITY_DEFAULT = 9;
   var bookCounts = {};
   var bookCapacity = BOOK_CAPACITY_DEFAULT;
+  var teamCount = 0;
+  var teamCapacity = TEAM_CAPACITY_DEFAULT;
   var countsLoaded = false;
 
   function isBookFull(book){
     return countsLoaded && (bookCounts[book] || 0) >= bookCapacity;
   }
 
-  function fetchBookCounts(){
+  function isTeamFull(){
+    return countsLoaded && teamCount >= teamCapacity;
+  }
+
+  // studentId를 넘기면 그 학생의 기존(정정 전) 신청은 정원 계산에서 제외한 결과를 받아온다.
+  // (같은 학생의 재신청/정정이 자기 자신 때문에 막히지 않도록)
+  var lastFetchedSid = null;
+  function fetchBookCounts(studentId){
     if(!SUBMIT_URL || SUBMIT_URL.indexOf("XXXX") !== -1) return;
-    fetch(SUBMIT_URL, { method: "GET" })
+    var sid = studentId ? studentId.trim() : "";
+    lastFetchedSid = sid;
+    var url = SUBMIT_URL + (sid ? ("?sid=" + encodeURIComponent(sid)) : "");
+    fetch(url, { method: "GET" })
       .then(function(res){ return res.json(); })
       .then(function(json){
-        if(json && json.counts){
-          bookCounts = json.counts;
+        if(json && (json.counts || typeof json.teamCount === "number")){
+          bookCounts = json.counts || {};
           bookCapacity = json.capacity || BOOK_CAPACITY_DEFAULT;
+          teamCount = typeof json.teamCount === "number" ? json.teamCount : teamCount;
+          teamCapacity = json.teamCapacity || TEAM_CAPACITY_DEFAULT;
           countsLoaded = true;
           render();
         }
       })
       .catch(function(){ /* 정원 정보를 불러오지 못해도 신청 자체는 계속 진행 가능 */ });
+  }
+
+  // 학번 입력이 4자리 숫자로 바뀔 때마다(연속 타이핑 중 과도한 요청은 살짝 지연시켜) 그 학생 기준으로 정원을 다시 불러온다.
+  var sidFetchTimer = null;
+  function scheduleFetchForStudentId(sidValue){
+    var v = (sidValue || "").trim();
+    if(!/^\d{4}$/.test(v)) return;
+    if(v === lastFetchedSid) return;
+    if(sidFetchTimer) clearTimeout(sidFetchTimer);
+    sidFetchTimer = setTimeout(function(){ fetchBookCounts(v); }, 350);
   }
 
   function heroHTML(){
@@ -249,11 +276,12 @@
               '<h3>도서 선택형<br>(교사 블라인드 매칭)</h3>' +
               '<p>제시 도서 중 1권을 고르면, 지도교사는 학생이 모두 모집된 후 공개됩니다.</p>' +
             '</label>' +
-            '<label class="type-opt' + (type2 ? " checked" : "") + '">' +
-              '<input type="radio" name="f-type" value="2"' + (type2 ? " checked" : "") + '>' +
-              '<span class="tag">TYPE 2</span>' +
+            '<label class="type-opt' + (type2 ? " checked" : "") + (isTeamFull() ? " disabled" : "") + '">' +
+              '<input type="radio" name="f-type" value="2"' + (type2 ? " checked" : "") + (isTeamFull() ? " disabled" : "") + '>' +
+              '<span class="tag">TYPE 2' + (isTeamFull() ? " · 마감" : "") + '</span>' +
               '<h3>모둠 섭외형<br>(학생 자율 구성)</h3>' +
               '<p>3~4명이 모둠을 꾸려 지도교사를 직접 섭외하여 신청합니다.</p>' +
+              '<div class="hint" style="margin-top:8px;">정원 ' + teamCapacity + '팀' + (countsLoaded ? (" · 현재 " + teamCount + "/" + teamCapacity + "팀") : "") + (isTeamFull() ? " · 모집 마감" : "") + '</div>' +
             '</label>' +
           '</div>' +
 
@@ -383,7 +411,7 @@
         onSubmit();
       });
       var sid = document.getElementById("f-studentId");
-      if(sid) sid.addEventListener("input", function(){ draft.studentId = sid.value; });
+      if(sid) sid.addEventListener("input", function(){ draft.studentId = sid.value; scheduleFetchForStudentId(sid.value); });
       var nm = document.getElementById("f-name");
       if(nm) nm.addEventListener("input", function(){ draft.name = nm.value; });
       var radios = document.getElementsByName("f-type");
@@ -459,6 +487,7 @@
     if(d.type !== "1" && d.type !== "2") return "신청 유형을 선택해 주세요.";
     if(d.type === "1" && !d.bookChoice) return "도서 후보 중 1권을 선택해 주세요.";
     if(d.type === "1" && countsLoaded && (bookCounts[d.bookChoice] || 0) >= bookCapacity) return "선택하신 도서는 이미 모집 인원(" + bookCapacity + "명)이 찼습니다. 다른 도서를 선택해 주세요.";
+    if(d.type === "2" && isTeamFull()) return "모둠 섭외형은 이미 모집 정원(" + teamCapacity + "팀)이 찼습니다.";
     if(d.type === "2"){
       for(var i=0;i<d.teamMembers.length;i++){
         var m = d.teamMembers[i];
@@ -520,17 +549,20 @@
         lastEntry = entry;
         mode = "success";
         render();
-        fetchBookCounts();
+        fetchBookCounts(entry.studentId);
       }else{
-        if(json && json.counts){
-          bookCounts = json.counts;
+        if(json && (json.counts || typeof json.teamCount === "number")){
+          bookCounts = json.counts || {};
           bookCapacity = json.capacity || bookCapacity;
+          teamCount = typeof json.teamCount === "number" ? json.teamCount : teamCount;
+          teamCapacity = json.teamCapacity || teamCapacity;
           countsLoaded = true;
         }
         formError = (json && json.message) ? (json.full ? json.message : ("제출 중 오류: " + json.message)) : "제출 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
         mode = "form";
         render();
-        if(!(json && json.counts)) fetchBookCounts();
+        // 실패 후에도 항상 이 학생 기준(자기 자신 제외)으로 최신 정원 정보를 다시 받아온다.
+        fetchBookCounts(entry.studentId);
       }
     }catch(err){
       formError = "네트워크 오류로 제출하지 못했습니다. 인터넷 연결을 확인한 뒤 신청하기를 다시 눌러 주세요.";
