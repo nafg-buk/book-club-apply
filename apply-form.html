@@ -166,6 +166,31 @@
   var lastEntry = null;
   var formError = "";
 
+  // 도서 선택형 도서별 정원 관리
+  var BOOK_CAPACITY_DEFAULT = 4;
+  var bookCounts = {};
+  var bookCapacity = BOOK_CAPACITY_DEFAULT;
+  var countsLoaded = false;
+
+  function isBookFull(book){
+    return countsLoaded && (bookCounts[book] || 0) >= bookCapacity;
+  }
+
+  function fetchBookCounts(){
+    if(!SUBMIT_URL || SUBMIT_URL.indexOf("XXXX") !== -1) return;
+    fetch(SUBMIT_URL, { method: "GET" })
+      .then(function(res){ return res.json(); })
+      .then(function(json){
+        if(json && json.counts){
+          bookCounts = json.counts;
+          bookCapacity = json.capacity || BOOK_CAPACITY_DEFAULT;
+          countsLoaded = true;
+          render();
+        }
+      })
+      .catch(function(){ /* 정원 정보를 불러오지 못해도 신청 자체는 계속 진행 가능 */ });
+  }
+
   function heroHTML(){
     return '' +
       '<div class="hero"><div class="hero-inner">' +
@@ -177,7 +202,9 @@
 
   function bookOptionsHTML(selected){
     return BOOKS.map(function(b){
-      return '<option value="' + esc(b) + '"' + (b === selected ? " selected" : "") + '>' + esc(b) + '</option>';
+      var full = isBookFull(b);
+      var label = b + (full ? " — 마감" : "");
+      return '<option value="' + esc(b) + '"' + (b === selected ? " selected" : "") + (full ? " disabled" : "") + '>' + esc(label) + '</option>';
     }).join("");
   }
 
@@ -238,7 +265,7 @@
                   bookOptionsHTML(d.bookChoice) +
                 '</select>' +
               '</label>' +
-              '<div class="hint">※ 지도교사는 학생이 모두 모집된 후 공개됩니다.</div>' +
+              '<div class="hint">※ 지도교사는 학생이 모두 모집된 후 공개됩니다. 도서별 정원은 ' + bookCapacity + '명이며, 정원이 찬 도서는 선택할 수 없습니다.</div>' +
             '</div>'
           ) : "") +
 
@@ -417,6 +444,7 @@
       draft = freshDraft();
       mode = "form"; lastEntry = null; formError = "";
       render();
+      fetchBookCounts();
     });
   }
 
@@ -430,6 +458,7 @@
     if(!d.name.trim()) return "이름을 입력해 주세요.";
     if(d.type !== "1" && d.type !== "2") return "신청 유형을 선택해 주세요.";
     if(d.type === "1" && !d.bookChoice) return "도서 후보 중 1권을 선택해 주세요.";
+    if(d.type === "1" && countsLoaded && (bookCounts[d.bookChoice] || 0) >= bookCapacity) return "선택하신 도서는 이미 모집 인원(" + bookCapacity + "명)이 찼습니다. 다른 도서를 선택해 주세요.";
     if(d.type === "2"){
       for(var i=0;i<d.teamMembers.length;i++){
         var m = d.teamMembers[i];
@@ -491,10 +520,17 @@
         lastEntry = entry;
         mode = "success";
         render();
+        fetchBookCounts();
       }else{
-        formError = (json && json.message) ? ("제출 중 오류: " + json.message) : "제출 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
+        if(json && json.counts){
+          bookCounts = json.counts;
+          bookCapacity = json.capacity || bookCapacity;
+          countsLoaded = true;
+        }
+        formError = (json && json.message) ? (json.full ? json.message : ("제출 중 오류: " + json.message)) : "제출 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
         mode = "form";
         render();
+        if(!(json && json.counts)) fetchBookCounts();
       }
     }catch(err){
       formError = "네트워크 오류로 제출하지 못했습니다. 인터넷 연결을 확인한 뒤 신청하기를 다시 눌러 주세요.";
@@ -504,6 +540,7 @@
   }
 
   render();
+  fetchBookCounts();
 })();
 </script>
 </body>
