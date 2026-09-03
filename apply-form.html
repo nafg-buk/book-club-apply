@@ -159,6 +159,7 @@
     var t = Date.now();
     return t >= APPLY_START && t < APPLY_END;
   }
+  var FORCE_CLOSED = true; // true로 설정하면 신청 기간과 무관하게 항상 "모든 신청이 마감되었습니다" 화면을 보여준다.
   var previewMode = false;
   try{ previewMode = /(^|[?&])preview=1(&|$)/.test(window.location.search); }catch(e){}
 
@@ -331,6 +332,13 @@
   }
 
   function closedHTML(){
+    if (FORCE_CLOSED) {
+      return '' +
+        '<section class="card" style="text-align:center;">' +
+          '<h2 style="font-size:17px;font-weight:800;color:var(--ink);margin-bottom:10px;">모든 신청이 마감되었습니다</h2>' +
+          '<p style="font-size:13.5px;color:var(--ink-soft);line-height:1.8;">내년에 함께해주세요.</p>' +
+        '</section>';
+    }
     var beforeOpen = Date.now() < APPLY_START;
     return '' +
       '<section class="card" style="text-align:center;">' +
@@ -396,7 +404,7 @@
   }
 
   function render(){
-    var applyOpen = isApplyOpen() || previewMode;
+    var applyOpen = !FORCE_CLOSED && (isApplyOpen() || previewMode);
     var body = mode === "success" ? successHTML() : (mode === "submitting" ? submittingHTML() : (applyOpen ? formHTML() : closedHTML()));
     app.innerHTML = heroHTML() + '<div class="wrap">' + body +
       '<div class="privacy">신청 관련 문의는 담당 교사에게 해주세요.</div>' +
