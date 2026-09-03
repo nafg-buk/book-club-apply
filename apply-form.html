@@ -174,6 +174,7 @@
   var bookCapacity = BOOK_CAPACITY_DEFAULT;
   var teamCount = 0;
   var teamCapacity = TEAM_CAPACITY_DEFAULT;
+  var teamClosed = false; // 관리자가 정원과 무관하게 모둠 섭외형을 강제로 마감시켰는지 여부(서버 응답의 teamClosed 값)
   var countsLoaded = false;
 
   function isBookFull(book){
@@ -181,7 +182,7 @@
   }
 
   function isTeamFull(){
-    return countsLoaded && teamCount >= teamCapacity;
+    return countsLoaded && (teamClosed || teamCount >= teamCapacity);
   }
 
   // studentId를 넘기면 그 학생의 기존(정정 전) 신청은 정원 계산에서 제외한 결과를 받아온다.
@@ -200,6 +201,7 @@
           bookCapacity = json.capacity || BOOK_CAPACITY_DEFAULT;
           teamCount = typeof json.teamCount === "number" ? json.teamCount : teamCount;
           teamCapacity = json.teamCapacity || TEAM_CAPACITY_DEFAULT;
+          teamClosed = !!json.teamClosed;
           countsLoaded = true;
           render();
         }
@@ -486,7 +488,7 @@
     if(d.type !== "1" && d.type !== "2") return "신청 유형을 선택해 주세요.";
     if(d.type === "1" && !d.bookChoice) return "도서 후보 중 1권을 선택해 주세요.";
     if(d.type === "1" && countsLoaded && (bookCounts[d.bookChoice] || 0) >= bookCapacity) return "선택하신 도서는 이미 모집 인원(" + bookCapacity + "명)이 찼습니다. 다른 도서를 선택해 주세요.";
-    if(d.type === "2" && isTeamFull()) return "모둠 섭외형은 이미 모집 정원(" + teamCapacity + "팀)이 찼습니다.";
+    if(d.type === "2" && isTeamFull()) return teamClosed ? "모둠 섭외형은 신청이 마감되었습니다." : ("모둠 섭외형은 이미 모집 정원(" + teamCapacity + "팀)이 찼습니다.");
     if(d.type === "2"){
       for(var i=0;i<d.teamMembers.length;i++){
         var m = d.teamMembers[i];
@@ -555,6 +557,7 @@
           bookCapacity = json.capacity || bookCapacity;
           teamCount = typeof json.teamCount === "number" ? json.teamCount : teamCount;
           teamCapacity = json.teamCapacity || teamCapacity;
+          teamClosed = typeof json.teamClosed === "boolean" ? json.teamClosed : teamClosed;
           countsLoaded = true;
         }
         formError = (json && json.message) ? (json.full ? json.message : ("제출 중 오류: " + json.message)) : "제출 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.";
